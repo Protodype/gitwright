@@ -27,6 +27,67 @@ stack_name: my-staging-stack                 # Docker Compose project name
 poll_interval: 1m                            # how often to check for new commits
 ```
 
+## Running in Docker
+
+Compose resolves bind mount paths inside the gitwright container, but the host daemon uses them. `data_dir` must therefore be mounted at the same path on the host and in the container.
+
+```yaml
+services:
+  gitwright:
+    image: gitwright
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${DATA_DIR:?DATA_DIR must be set}:${DATA_DIR}
+    configs:
+      - source: gitwright
+        target: /etc/gitwright/config.yml
+configs:
+  gitwright:
+    content: |
+      repo_url: https://github.com/org/infra.git
+      watch_path: staging
+      data_dir: ${DATA_DIR}
+      stack_name: my-staging-stack
+      poll_interval: 1m
+```
+
+With `.env` next to it:
+
+```
+DATA_DIR=/srv/gitwright/staging
+```
+
+Inline `configs.content` requires Docker Compose 2.23.1 or later.
+
+### Passing secrets and variables to the deployed stack
+
+`docker-compose` inherits the environment of the gitwright process, so variables set on the gitwright container are available for interpolation in the deployed compose file. This keeps secrets out of the repository.
+
+1. Define them in gitwright's `.env`:
+   ```
+   DATA_DIR=/srv/gitwright/staging
+   DB_PASSWORD=changeme
+   ```
+2. Pass them to the gitwright container:
+   ```yaml
+   services:
+     gitwright:
+       # ...
+       environment:
+         DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
+   ```
+3. Use them in the deployed compose file in the repository:
+   ```yaml
+   services:
+     db:
+       image: postgres
+       environment:
+         POSTGRES_PASSWORD: ${DB_PASSWORD}
+   ```
+
+Variables from the gitwright environment take precedence over a `.env` file in `watch_path`. Values are visible to anyone who can run `docker inspect` on either container.
+
 ## How it works
 
 1. On start, `data_dir` is emptied, the repository is cloned into it and the stack is deployed.
