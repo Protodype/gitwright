@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 
 	"github.com/go-git/go-git/v5"
@@ -24,7 +23,7 @@ func clone(url, dir string) (*Repo, error) {
 	}
 	head, err := r.Head()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to resolve HEAD of cloned repository: %w", err)
 	}
 	return &Repo{repo: r, branch: head.Name()}, nil
 }
@@ -34,16 +33,16 @@ func clone(url, dir string) (*Repo, error) {
 func (r *Repo) update(watchPath string) (bool, error) {
 	err := r.repo.Fetch(&git.FetchOptions{Force: true})
 	if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
-		return false, fmt.Errorf("fetch: %w", err)
+		return false, fmt.Errorf("failed to fetch from remote: %w", err)
 	}
 
 	head, err := r.repo.Head()
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("failed to resolve local HEAD: %w", err)
 	}
 	remote, err := r.repo.Reference(plumbing.NewRemoteReferenceName("origin", r.branch.Short()), true)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("failed to resolve remote branch origin/%s: %w", r.branch.Short(), err)
 	}
 	if head.Hash() == remote.Hash() {
 		return false, nil
@@ -51,18 +50,18 @@ func (r *Repo) update(watchPath string) (bool, error) {
 
 	changed, err := r.changedPaths(head.Hash(), remote.Hash())
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("failed to list files changed between %s and %s: %w", head.Hash(), remote.Hash(), err)
 	}
 
 	wt, err := r.repo.Worktree()
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("failed to open worktree: %w", err)
 	}
 	if err := wt.Reset(&git.ResetOptions{Commit: remote.Hash(), Mode: git.HardReset}); err != nil {
-		return false, fmt.Errorf("reset: %w", err)
+		return false, fmt.Errorf("failed to reset worktree to %s: %w", remote.Hash(), err)
 	}
 	if err := wt.Clean(&git.CleanOptions{Dir: true}); err != nil {
-		return false, fmt.Errorf("clean: %w", err)
+		return false, fmt.Errorf("failed to remove untracked files from worktree: %w", err)
 	}
 
 	touched := false
@@ -72,7 +71,6 @@ func (r *Repo) update(watchPath string) (bool, error) {
 			break
 		}
 	}
-	log.Printf("updated %s -> %s, watch path touched: %t", head.Hash(), remote.Hash(), touched)
 	return touched, nil
 }
 
@@ -87,7 +85,7 @@ func (r *Repo) changedPaths(from, to plumbing.Hash) ([]string, error) {
 	}
 	changes, err := object.DiffTree(fromTree, toTree)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to diff trees: %w", err)
 	}
 	var paths []string
 	for _, c := range changes {
@@ -104,7 +102,11 @@ func (r *Repo) changedPaths(from, to plumbing.Hash) ([]string, error) {
 func (r *Repo) tree(hash plumbing.Hash) (*object.Tree, error) {
 	commit, err := r.repo.CommitObject(hash)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read commit %s: %w", hash, err)
 	}
-	return commit.Tree()
+	tree, err := commit.Tree()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read tree of commit %s: %w", hash, err)
+	}
+	return tree, nil
 }

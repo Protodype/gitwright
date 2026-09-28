@@ -2,10 +2,17 @@ package main
 
 import (
 	"flag"
-	"log"
+	"fmt"
+	"log/slog"
+	"os"
 	"path/filepath"
 	"time"
 )
+
+func fatal(format string, args ...any) {
+	slog.Error(fmt.Sprintf(format, args...))
+	os.Exit(1)
+}
 
 func main() {
 	configPath := flag.String("config", "/etc/gitwright/config.yml", "path to YAML config file")
@@ -13,29 +20,39 @@ func main() {
 
 	cfg, err := loadConfig(*configPath)
 	if err != nil {
-		log.Fatalf("config: %v", err)
+		fatal("failed to load config: %v", err)
 	}
 	if err := prepareDataDir(cfg.DataDir); err != nil {
-		log.Fatalf("data_dir: %v", err)
+		fatal("failed to prepare data directory: %v", err)
 	}
 
-	log.Printf("cloning %s into %s", cfg.RepoURL, cfg.DataDir)
+	slog.Info(fmt.Sprintf("cloning %s into %s", cfg.RepoURL, cfg.DataDir))
 	repo, err := clone(cfg.RepoURL, cfg.DataDir)
 	if err != nil {
-		log.Fatalf("clone: %v", err)
+		fatal("failed to clone %s: %v", cfg.RepoURL, err)
 	}
 
 	watchDir := filepath.Join(cfg.DataDir, cfg.WatchPath)
-	checkAndDeploy(watchDir, cfg.StackName)
+	if err := checkAndDeploy(watchDir, cfg.StackName); err != nil {
+		slog.Error(fmt.Sprintf("failed to deploy stack %s: %v", cfg.StackName, err))
+	} else {
+		slog.Info(fmt.Sprintf("stack %s deployed", cfg.StackName))
+	}
 
 	for range time.Tick(cfg.PollInterval) {
 		touched, err := repo.update(cfg.WatchPath)
 		if err != nil {
-			log.Printf("update: %v", err)
+			slog.Error(fmt.Sprintf("failed to update repository: %v", err))
 			continue
 		}
-		if touched {
-			checkAndDeploy(watchDir, cfg.StackName)
+		if !touched {
+			continue
 		}
+		slog.Info(fmt.Sprintf("changes detected in %s", cfg.WatchPath))
+		if err := checkAndDeploy(watchDir, cfg.StackName); err != nil {
+			slog.Error(fmt.Sprintf("failed to deploy stack %s: %v", cfg.StackName, err))
+			continue
+		}
+		slog.Info(fmt.Sprintf("stack %s deployed", cfg.StackName))
 	}
 }

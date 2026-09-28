@@ -1,19 +1,20 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 var composeFiles = []string{"compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"}
 
-func checkAndDeploy(dir, stack string) {
+func checkAndDeploy(dir, stack string) error {
 	if err := check(dir); err != nil {
-		log.Printf("check: %v", err)
-		return
+		return fmt.Errorf("repository check failed: %w", err)
 	}
 	for _, args := range [][]string{
 		{"pull"},
@@ -21,11 +22,10 @@ func checkAndDeploy(dir, stack string) {
 		{"up", "-d", "--remove-orphans"},
 	} {
 		if err := compose(dir, stack, args...); err != nil {
-			log.Printf("docker-compose %v: %v", args, err)
-			return
+			return fmt.Errorf("docker-compose %s failed: %w", strings.Join(args, " "), err)
 		}
 	}
-	log.Printf("stack %s deployed", stack)
+	return nil
 }
 
 func check(dir string) error {
@@ -38,13 +38,24 @@ func check(dir string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("no compose file in %s", dir)
+	return fmt.Errorf("no compose file found in %s", dir)
 }
 
 func compose(dir, stack string, args ...string) error {
 	cmd := exec.Command("docker-compose", append([]string{"-p", stack}, args...)...)
 	cmd.Dir = dir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return fmt.Errorf("exit code %d: %s", exitErr.ExitCode(), msg)
+		}
+		return fmt.Errorf("exit code %d", exitErr.ExitCode())
+	}
+	if err != nil {
+		return fmt.Errorf("failed to run docker-compose: %w", err)
+	}
+	return nil
 }

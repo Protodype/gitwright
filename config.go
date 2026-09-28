@@ -21,7 +21,7 @@ type Config struct {
 func loadConfig(path string) (Config, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return Config{}, err
+		return Config{}, fmt.Errorf("failed to open config file: %w", err)
 	}
 	defer f.Close()
 
@@ -29,7 +29,7 @@ func loadConfig(path string) (Config, error) {
 	dec.KnownFields(true)
 	var cfg Config
 	if err := dec.Decode(&cfg); err != nil {
-		return Config{}, err
+		return Config{}, fmt.Errorf("failed to parse config file %s: %w", path, err)
 	}
 
 	if cfg.RepoURL == "" || cfg.WatchPath == "" || cfg.DataDir == "" || cfg.StackName == "" || cfg.PollInterval <= 0 {
@@ -52,11 +52,11 @@ func prepareDataDir(dir string) error {
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to list contents of %s: %w", dir, err)
 	}
 	for _, e := range entries {
 		if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
-			return err
+			return fmt.Errorf("failed to remove %s: %w", filepath.Join(dir, e.Name()), err)
 		}
 	}
 	return nil
