@@ -48,7 +48,7 @@ func main() {
 		if !touched {
 			continue
 		}
-		slog.Info(fmt.Sprintf("changes detected in %s", cfg.WatchPath))
+		slog.Info(fmt.Sprintf("changes detected in %s", watchDir))
 		if err := checkAndDeploy(watchDir, cfg.StackName); err != nil {
 			slog.Error(fmt.Sprintf("failed to deploy stack %s: %v", cfg.StackName, err))
 			continue
